@@ -322,7 +322,11 @@ class IndicatorViewModel: ObservableObject {
         let prefs = AppPreferences.shared
 
         if prefs.autoPasteTranscription {
-            if prefs.autoCopyToClipboard {
+            if ClipboardUtil.frontmostIsChrome() {
+                // Remote desktop in Chrome pastes a stale clipboard; type instead
+                if prefs.autoCopyToClipboard { ClipboardUtil.copyToClipboard(finalText) }
+                ClipboardUtil.typeText(finalText)
+            } else if prefs.autoCopyToClipboard {
                 // Paste and keep in clipboard
                 ClipboardUtil.insertTextAndKeepInClipboard(finalText)
             } else {

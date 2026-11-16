@@ -110,6 +110,67 @@ class ClipboardUtil {
         postEvent(cmdUp)
     }
     
+    /// Chrome Remote Desktop runs in Chrome (or as a Chrome app).
+    static func frontmostIsChrome() -> Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier?.hasPrefix("com.google.Chrome") ?? false
+    }
+
+    private static let typingQueue = DispatchQueue(label: "ClipboardUtil.typing")
+    private static let typingEventDelay: useconds_t = 2000
+
+    /// Types text as real key presses, Shift pressed as its own key.
+    /// Chrome Remote Desktop forwards keystrokes at once but syncs the clipboard
+    /// lazily, so a paste there inserts stale clipboard text.
+    /// shortcut: characters the layout cannot type without Option are skipped; fine for English dictation.
+    static func typeText(_ text: String) {
+        let keys = keyMapForCurrentLayout()
+        let shiftKeyCode: CGKeyCode = 56
+        typingQueue.async {
+            guard let source = CGEventSource(stateID: .combinedSessionState) else { return }
+            func post(_ code: CGKeyCode, _ down: Bool, _ flags: CGEventFlags) {
+                guard let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down) else { return }
+                event.flags = flags
+                event.post(tap: .cghidEventTap)
+                usleep(typingEventDelay)
+            }
+            for ch in text {
+                guard let key = keys[ch] else { continue }
+                let flags: CGEventFlags = key.shift ? .maskShift : []
+                if key.shift { post(shiftKeyCode, true, .maskShift) }
+                post(key.code, true, flags)
+                post(key.code, false, flags)
+                if key.shift { post(shiftKeyCode, false, []) }
+            }
+        }
+    }
+
+    /// Character to (keycode, needs Shift) for the main key block of the current layout.
+    static func keyMapForCurrentLayout() -> [Character: (code: CGKeyCode, shift: Bool)] {
+        var map: [Character: (code: CGKeyCode, shift: Bool)] = ["\n": (36, false), "\t": (48, false)]
+        guard let inputSource = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+              let layoutDataPtr = TISGetInputSourceProperty(inputSource, kTISPropertyUnicodeKeyLayoutData)
+        else { return map }
+        let layoutData = unsafeBitCast(layoutDataPtr, to: CFData.self)
+        let keyboardLayout = unsafeBitCast(CFDataGetBytePtr(layoutData), to: UnsafePointer<UCKeyboardLayout>.self)
+
+        // Unshifted pass first so it wins; 0...50 skips the keypad (Windows reads it as navigation keys with NumLock off).
+        for shift in [false, true] {
+            let modifiers: UInt32 = shift ? UInt32(shiftKey >> 8) & 0xFF : 0
+            for keycode: UInt16 in 0...50 {
+                var deadKeyState: UInt32 = 0
+                var chars = [UniChar](repeating: 0, count: 4)
+                var length = 0
+                let status = UCKeyTranslate(keyboardLayout, keycode, UInt16(kUCKeyActionDown), modifiers,
+                                            UInt32(LMGetKbdType()), UInt32(kUCKeyTranslateNoDeadKeysBit),
+                                            &deadKeyState, 4, &length, &chars)
+                guard status == noErr, length == 1, let scalar = UnicodeScalar(chars[0]) else { continue }
+                let ch = Character(scalar)
+                if map[ch] == nil { map[ch] = (CGKeyCode(keycode), shift) }
+            }
+        }
+        return map
+    }
+
     static func isQwertyCommandLayout() -> Bool {
         guard let inputSource = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
               let idPtr = TISGetInputSourceProperty(inputSource, kTISPropertyInputSourceID)

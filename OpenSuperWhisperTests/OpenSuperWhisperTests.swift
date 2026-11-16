@@ -738,6 +738,17 @@ final class ClipboardUtilPasteIntegrationTests: XCTestCase {
 
     // MARK: - Basic Layouts
     
+    func testTypingKeyMapUSLayout() throws {
+        guard ClipboardUtil.switchToInputSource(withID: "com.apple.keylayout.US") else {
+            throw XCTSkip("US layout not available")
+        }
+        let map = ClipboardUtil.keyMapForCurrentLayout()
+        for (ch, code, shift) in [("a", 0, false), ("A", 0, true), ("?", 44, true), (" ", 49, false), ("*", 28, true)] as [(Character, CGKeyCode, Bool)] {
+            XCTAssertEqual(map[ch]?.code, code, "\(ch)")
+            XCTAssertEqual(map[ch]?.shift, shift, "\(ch)")
+        }
+    }
+
     func testPasteWithUSLayout() async throws {
         try await testPasteWithLayout(layoutID: "US", testText: "Hello from US layout test")
     }
