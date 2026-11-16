@@ -87,16 +87,27 @@ class ClipboardUtil {
             keyCodeV = qwertyKeyCodeV
         }
         
+        // Real Left Command press/release around V: remote-desktop clients
+        // (Chrome Remote Desktop) forward only keys they see pressed, so a
+        // V carrying just the Cmd flag arrives on the remote side as plain "v".
+        let leftCommandKeyCode: CGKeyCode = 55
+
         guard let source = CGEventSource(stateID: .combinedSessionState),
+              let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: leftCommandKeyCode, keyDown: true),
               let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCodeV, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCodeV, keyDown: false)
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCodeV, keyDown: false),
+              let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: leftCommandKeyCode, keyDown: false)
         else { return }
-        
+
+        cmdDown.flags = .maskCommand
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
-        
+        cmdUp.flags = []
+
+        postEvent(cmdDown)
         postEvent(keyDown)
         postEvent(keyUp)
+        postEvent(cmdUp)
     }
     
     static func isQwertyCommandLayout() -> Bool {

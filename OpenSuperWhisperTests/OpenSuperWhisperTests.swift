@@ -717,15 +717,17 @@ final class ClipboardUtilPasteIntegrationTests: XCTestCase {
         var eventTypes: [CGEventType] = []
         ClipboardUtil.insertText(text, postEvent: { event in
             eventTypes.append(event.type)
-            XCTAssertTrue(event.flags.contains(.maskCommand))
-            guard event.type == .keyDown else { return }
+            let isCommandKey = event.getIntegerValueField(.keyboardEventKeycode) == 55
+            // Cmd release is the only event without the Cmd flag
+            XCTAssertEqual(event.flags.contains(.maskCommand), !(isCommandKey && event.type == .keyUp))
+            guard event.type == .keyDown, !isCommandKey else { return }
             guard let keyEvent = NSEvent(cgEvent: event) else {
                 XCTFail("Paste event must be convertible to an AppKit event")
                 return
             }
             XCTAssertTrue(editMenu.performKeyEquivalent(with: keyEvent))
         })
-        XCTAssertEqual(eventTypes, [.keyDown, .keyUp])
+        XCTAssertEqual(eventTypes, [.keyDown, .keyDown, .keyUp, .keyUp])
         let pasteDeadline = Date().addingTimeInterval(3)
         while editor.string != text && Date() < pasteDeadline {
             try await Task.sleep(nanoseconds: 20_000_000)
